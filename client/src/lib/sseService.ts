@@ -35,11 +35,14 @@ function generateMockTransaction(): Transaction {
     const name = ["J.", "B.", "T.", "A.", "M.", "O.", "C."][Math.floor(Math.random() * 7)] + " " + NAMES[Math.floor(Math.random() * NAMES.length)];
     const id1 = Math.floor(1000 + Math.random() * 9000);
     const id2 = Math.floor(1000 + Math.random() * 9000);
+    const cId1 = Math.floor(1000 + Math.random() * 9000);
+    const cId2 = Math.floor(1000 + Math.random() * 9000);
 
     return {
         id: crypto.randomUUID(),
         name,
         accountId: `${id1}-****-${id2}`,
+        counterpartyId: `C-${cId1}-****-${cId2}`,
         amount: 50 + Math.random() * 24950,
         timestamp: new Date().toISOString(),
         status
@@ -88,6 +91,7 @@ export const sseService: SSEService = {
                             id: crypto.randomUUID(),
                             name: data.accountId,       // use full accountId as name
                             accountId: data.accountId,  // full id for graph linking
+                            counterpartyId: data.counterpartyId || `unknown-${crypto.randomUUID().slice(0,4)}`,
                             amount: data.amount,
                             timestamp: new Date().toISOString(),
                             status

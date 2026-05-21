@@ -53,20 +53,76 @@ export default function Graph() {
     if (latest.status === 'CRITICAL') newStatus = 'flagged';
     else if (latest.status === 'HIGH_RISK') newStatus = 'watch';
 
-    const existingNode = graphData.nodes.find(n => n.accountId === latest.accountId || n.id === latest.accountId);
-    if (!existingNode || existingNode.status === newStatus) return;
+    let updatedNodes = [...graphData.nodes];
+    let nodesChanged = false;
 
-    const updatedNodes = graphData.nodes.map(n =>
-      n.id === existingNode.id ? { ...n, status: newStatus } : n
-    );
-    const updatedEdges = graphData.edges.map(e => ({
-      ...e,
-      suspicious: (
-        updatedNodes.find(n => n.id === e.source)?.status === 'flagged' ||
-        updatedNodes.find(n => n.id === e.target)?.status === 'flagged'
-      ),
-    }));
-    dispatch(updateGraphData({ nodes: updatedNodes, edges: updatedEdges }));
+    const sourceId = latest.accountId;
+    let sourceNode = updatedNodes.find(n => n.id === sourceId || n.accountId === sourceId);
+    
+    if (sourceNode) {
+      if (sourceNode.status !== newStatus) {
+        updatedNodes = updatedNodes.map(n => 
+          (n.id === sourceId || n.accountId === sourceId) ? { ...n, status: newStatus } : n
+        );
+        nodesChanged = true;
+      }
+    } else {
+      sourceNode = {
+        id: sourceId,
+        label: latest.name || sourceId.substring(0, 8),
+        type: 'account',
+        status: newStatus,
+        accountId: sourceId
+      };
+      updatedNodes.push(sourceNode);
+      nodesChanged = true;
+    }
+
+    const targetId = latest.counterpartyId;
+    if (targetId) {
+      let targetNode = updatedNodes.find(n => n.id === targetId || n.accountId === targetId);
+      if (!targetNode) {
+        targetNode = {
+          id: targetId,
+          label: targetId.substring(0, 8),
+          type: 'account',
+          status: 'clean',
+          accountId: targetId
+        };
+        updatedNodes.push(targetNode);
+        nodesChanged = true;
+      }
+    }
+
+    let updatedEdges = [...graphData.edges];
+    let edgesChanged = false;
+    
+    if (targetId) {
+      const edgeId = `live-${latest.id}`;
+      if (!updatedEdges.find(e => e.id === edgeId)) {
+        updatedEdges.push({
+          id: edgeId,
+          source: sourceNode.id,
+          target: targetId,
+          weight: latest.amount,
+          suspicious: newStatus === 'flagged' || updatedNodes.find(n => n.id === targetId)?.status === 'flagged'
+        });
+        edgesChanged = true;
+      }
+    }
+
+    if (nodesChanged || edgesChanged) {
+      if (nodesChanged) {
+        updatedEdges = updatedEdges.map(e => ({
+          ...e,
+          suspicious: (
+            updatedNodes.find(n => n.id === e.source)?.status === 'flagged' ||
+            updatedNodes.find(n => n.id === e.target)?.status === 'flagged'
+          )
+        }));
+      }
+      dispatch(updateGraphData({ nodes: updatedNodes, edges: updatedEdges }));
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transactions]);
 
@@ -86,7 +142,10 @@ export default function Graph() {
         onSearchChange={setSearchQuery}
         filterStatuses={filterStatuses}
         onFilterChange={setFilterStatuses}
-        onRescan={() => graphCanvasRef.current?.fitFlagged()}
+        onRescan={async () => {
+          await loadGraphData();
+          setTimeout(() => graphCanvasRef.current?.fitFlagged(), 300);
+        }}
       />
 
       {/* Full-width graph — modal overlays instead of sidebar split */}

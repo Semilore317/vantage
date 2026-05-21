@@ -6,6 +6,7 @@ export interface Transaction {
   id: string;
   name: string;
   accountId: string;         // masked format: "8824-****-9210"
+  counterpartyId?: string;
   amount: number;
   timestamp: string;         // ISO UTC string
   status: TransactionStatus;
