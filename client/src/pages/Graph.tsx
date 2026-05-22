@@ -57,7 +57,7 @@ export default function Graph() {
     else if (latest.status === 'HIGH_RISK') newStatus = 'watch';
 
     // Override with flagged accounts list if present
-    const isExplicitlyFlagged = flaggedAccounts.some(a => a.id === latest.accountId && (a.isBlacklisted || a.trustScore < 40));
+    const isExplicitlyFlagged = flaggedAccounts.some(a => a.id === latest.accountId && (a.isBlacklisted || a.trustScore < 0.4));
     if (isExplicitlyFlagged) newStatus = 'flagged';
 
     const nodes = [...graphData.nodes];
@@ -85,7 +85,7 @@ export default function Graph() {
     const counterpartyId = latest.counterpartyId;
     const cpNodeIdx = counterpartyId ? nodes.findIndex(n => n.id === counterpartyId || n.accountId === counterpartyId) : -1;
     if (counterpartyId && cpNodeIdx === -1) {
-      const cpIsFlagged = flaggedAccounts.some(a => a.id === latest.counterpartyId && (a.isBlacklisted || a.trustScore < 40));
+      const cpIsFlagged = flaggedAccounts.some(a => a.id === latest.counterpartyId && (a.isBlacklisted || a.trustScore < 0.4));
       nodes.push({
         id: counterpartyId,
         label: latest.counterpartyName || counterpartyId,
