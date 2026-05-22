@@ -129,7 +129,7 @@ export const sseService: SSEService = {
                     }
                 });
 
-                eventSource.addEventListener("flag_update", async (e) => {
+                eventSource.addEventListener("flag_update", (e) => {
                     try {
                         const data = JSON.parse(e.data);
                         if (data.isBlacklisted) {
