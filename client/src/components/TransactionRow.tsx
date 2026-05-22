@@ -23,7 +23,7 @@ const TransactionRow = ({ transaction, isNew }: TransactionRowProps) => {
 
     const formattedAmount = new Intl.NumberFormat("en-US", {
         style: "currency",
-        currency: "USD",
+        currency: transaction.currency || "NGN",
         minimumFractionDigits: 2,
     }).format(transaction.amount);
 
@@ -36,11 +36,15 @@ const TransactionRow = ({ transaction, isNew }: TransactionRowProps) => {
             className={`flex items-center justify-between p-[var(--spacing-md)] bg-[var(--color-bg-card)] hover:bg-[var(--color-bg-raised)] border-b border-[var(--color-border-subtle)] transition-colors ${animateClass}`}
         >
             <div className="flex-1 min-w-0">
-                <AccountChip 
-                    name={transaction.name} 
-                    accountId={transaction.accountId} 
-                    avatarUrl={transaction.avatarUrl} 
-                />
+                <div className="flex flex-col gap-1">
+                    <AccountChip 
+                        name={transaction.counterpartyName || transaction.name || transaction.counterpartyId || transaction.accountId} 
+                        accountId={transaction.accountId} 
+                    />
+                    <span className="text-[10px] text-[var(--color-text-muted)] font-mono ml-2">
+                        Ref: {transaction.id.substring(0, 12)}...
+                    </span>
+                </div>
             </div>
             
             <div className="flex items-center gap-6 shrink-0 ml-4">

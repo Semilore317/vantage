@@ -1,39 +1,70 @@
-import { useAppDispatch } from '../../store/hooks';
+import { useEffect } from 'react';
+import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { selectNode } from '../../store/graphSlice';
 import { fetchVerdict } from '../../lib/fetchVerdict';
-import { mockVerdicts } from '../../lib/mockVerdicts';
-import { ShieldAlert, ExternalLink } from 'lucide-react';
-import type { Verdict } from '../../types';
+import { ShieldAlert, ExternalLink, UserMinus } from 'lucide-react';
+import { fetchFlaggedAccounts, addFlaggedAccount, removeFlaggedAccount } from '../../store/flaggedSlice';
+import { adminService } from '../../services/adminService';
 
-// Build the flagged list from mock data (will be replaced with real API data)
-const flaggedAccounts = Object.values(mockVerdicts).filter(
-  v => v.riskLevel === 'CRITICAL RISK' || v.riskLevel === 'HIGH RISK'
-);
-
-function getRiskBadgeColors(riskLevel: Verdict['riskLevel']): { bg: string; border: string; color: string } {
-  if (riskLevel === 'CRITICAL RISK') return {
+function getRiskBadgeColors(trustScore: number): { bg: string; border: string; color: string; label: string } {
+  if (trustScore < 0.3) return {
     bg: 'var(--color-status-danger-subtle)',
     border: 'var(--color-status-danger-border)',
     color: 'var(--color-status-danger)',
+    label: 'CRITICAL RISK'
   };
-  if (riskLevel === 'HIGH RISK') return {
+  if (trustScore < 0.6) return {
     bg: 'var(--color-status-warning-subtle)',
     border: 'var(--color-status-warning-border)',
     color: 'var(--color-status-warning)',
+    label: 'HIGH RISK'
   };
   return {
     bg: 'var(--color-bg-raised)',
     border: 'var(--color-border-subtle)',
     color: 'var(--color-text-muted)',
+    label: 'WATCH'
   };
 }
 
 export default function FlaggedAccounts() {
   const dispatch = useAppDispatch();
+  const { accounts, isLoading } = useAppSelector((state) => state.flagged);
+  const transactions = useAppSelector((state) => state.dashboard.transactions);
+
+  useEffect(() => {
+    dispatch(fetchFlaggedAccounts());
+  }, [dispatch]);
+
+  // Live update: if a new transaction is flagged, add it to the list immediately
+  useEffect(() => {
+    if (transactions.length > 0) {
+      const latest = transactions[0];
+      if (latest.status === 'CRITICAL' || latest.status === 'HIGH_RISK') {
+        dispatch(addFlaggedAccount({
+          id: latest.accountId,
+          isBlacklisted: true,
+          trustScore: latest.trustScore || 0.1,
+          lastSeen: 'Just now',
+          isFrozen: false
+        }));
+      }
+    }
+  }, [transactions, dispatch]);
 
   const handleOpenVerdict = (nodeId: string) => {
     dispatch(selectNode(nodeId));
     dispatch(fetchVerdict(nodeId));
+  };
+
+  const handleUnflag = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    try {
+      await adminService.unflagAccount(id);
+      dispatch(removeFlaggedAccount(id));
+    } catch (err) {
+      console.error("Failed to unflag account", err);
+    }
   };
 
   return (
@@ -54,7 +85,7 @@ export default function FlaggedAccounts() {
             Flagged Accounts
           </h1>
           <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--color-text-muted)' }}>
-            {flaggedAccounts.length} accounts flagged — click any row to open the Verdict Panel
+            {accounts.length} accounts flagged — real-time monitoring active
           </p>
         </div>
       </div>
@@ -66,13 +97,13 @@ export default function FlaggedAccounts() {
       >
         {/* Table header */}
         <div
-          className="grid grid-cols-[1fr_160px_120px_120px_48px] px-5 py-3"
+          className="grid grid-cols-[180px_140px_140px_160px_1fr_100px] px-5 py-3"
           style={{
             background: 'var(--color-bg-surface)',
             borderBottom: '1px solid var(--color-border-subtle)',
           }}
         >
-          {['Account', 'Node Origin', 'Trust Score', 'Risk Level', ''].map(col => (
+          {['Account ID', 'Last Seen', 'Trust Score', 'Risk Level', 'AI Recommendation', 'Actions'].map(col => (
             <span
               key={col}
               className="uppercase tracking-wider"
@@ -84,7 +115,7 @@ export default function FlaggedAccounts() {
         </div>
 
         {/* Rows */}
-        {flaggedAccounts.map((account, i) => {
+        {accounts.map((account, i) => {
           const scoreValue = Math.round(account.trustScore * 100);
           const scoreColor = scoreValue < 30
             ? 'var(--color-status-danger)'
@@ -94,32 +125,26 @@ export default function FlaggedAccounts() {
 
           return (
             <div
-              key={account.nodeId}
-              onClick={() => handleOpenVerdict(account.nodeId)}
-              className="grid grid-cols-[1fr_160px_120px_120px_48px] items-center px-5 py-4 cursor-pointer transition-colors hover:bg-bg-raised group"
+              key={account.id}
+              onClick={() => handleOpenVerdict(account.id)}
+              className="grid grid-cols-[180px_140px_140px_160px_1fr_100px] items-center px-5 py-4 cursor-pointer transition-colors hover:bg-bg-raised group"
               style={{
                 borderTop: i > 0 ? '1px solid var(--color-border-subtle)' : undefined,
               }}
             >
-              {/* Account name + ID */}
-              <div className="flex flex-col gap-0.5">
-                <span style={{ fontSize: 'var(--font-size-body)', fontWeight: 500, color: 'var(--color-text-primary)' }}>
-                  {account.entityName}
+              {/* Account ID */}
+              <div className="flex flex-col gap-0.5 overflow-hidden">
+                <span className="font-mono truncate" title={account.id} style={{ fontSize: 'var(--font-size-body)', fontWeight: 500, color: 'var(--color-text-primary)' }}>
+                  {account.id}
                 </span>
-                <span
-                  className="font-mono"
-                  style={{ fontSize: 'var(--font-size-caption)', color: 'var(--color-text-muted)' }}
-                >
-                  {account.nodeId}
+                <span className="truncate" style={{ fontSize: 'var(--font-size-caption)', color: 'var(--color-text-muted)' }}>
+                  {account.email || 'No email associated'}
                 </span>
               </div>
 
-              {/* Node origin */}
-              <span
-                className="font-mono"
-                style={{ fontSize: 'var(--font-size-caption)', color: 'var(--color-text-secondary)' }}
-              >
-                {account.nodeOrigin}
+              {/* Last Seen */}
+              <span style={{ fontSize: 'var(--font-size-caption)', color: 'var(--color-text-secondary)' }}>
+                {account.lastSeen || 'Recently'}
               </span>
 
               {/* Trust score */}
@@ -144,7 +169,7 @@ export default function FlaggedAccounts() {
               {/* Risk level badge */}
               <div>
                 {(() => {
-                  const { bg, border, color } = getRiskBadgeColors(account.riskLevel);
+                  const { bg, border, color, label } = getRiskBadgeColors(account.trustScore);
                   return (
                     <span
                       style={{
@@ -160,31 +185,55 @@ export default function FlaggedAccounts() {
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {account.riskLevel}
+                      {label}
                     </span>
                   );
                 })()}
               </div>
 
-              {/* Open verdict icon */}
-              <div className="flex justify-end">
+              {/* AI Recommendation */}
+              <div className="px-2">
+                 <p 
+                  className="line-clamp-2"
+                  style={{ fontSize: 'var(--font-size-caption)', color: 'var(--color-text-secondary)', fontStyle: account.latestRecommendation ? 'normal' : 'italic' }}
+                >
+                  {account.latestRecommendation || 'Analysis pending...'}
+                </p>
+              </div>
+
+              {/* Actions */}
+
+              {/* Actions */}
+              <div className="flex items-center gap-4 justify-end">
+                <button
+                  onClick={(e) => handleUnflag(e, account.id)}
+                  className="p-1.5 rounded-sm hover:bg-bg-canvas transition-colors text-text-muted hover:text-status-safe"
+                  title="Mark as False Positive"
+                >
+                  <UserMinus size={16} />
+                </button>
                 <ExternalLink
                   size={14}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity"
-                  style={{ color: 'var(--color-accent)' }}
+                  className="text-text-muted opacity-40 group-hover:opacity-100 transition-opacity"
                 />
               </div>
             </div>
           );
         })}
 
-        {flaggedAccounts.length === 0 && (
+        {accounts.length === 0 && !isLoading && (
           <div
             className="flex flex-col items-center justify-center py-16 gap-3"
             style={{ color: 'var(--color-text-muted)' }}
           >
             <ShieldAlert size={32} />
             <span style={{ fontSize: 'var(--font-size-body)' }}>No flagged accounts found</span>
+          </div>
+        )}
+
+        {isLoading && (
+          <div className="flex justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
           </div>
         )}
       </div>

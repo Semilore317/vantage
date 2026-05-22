@@ -27,6 +27,10 @@ import org.jetbrains.exposed.sql.selectAll
 @Suppress("DEPRECATION")
 fun Route.configureApiRoutes() {
     intercept(ApplicationCallPipeline.Call) {
+        if (call.request.httpMethod == HttpMethod.Options) {
+            proceed()
+            return@intercept
+        }
         val path = call.request.uri.substringBefore('?')
         if (path.endsWith("/login")) {
             proceed()
@@ -41,7 +45,6 @@ fun Route.configureApiRoutes() {
     val memgraph = AppContext.memgraph
     val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
     val trustService = TrustService()
-    val aiService = AiService()
     val squadClient = SquadClient()
     val geoIpService = GeoIpService()
 
@@ -104,20 +107,33 @@ fun Route.configureApiRoutes() {
     }
 
     get("/trust/{accountId}") {
-        val accountId = call.parameters["accountId"] ?: return@get
-        val account = memgraph.readSingle(Queries.findAccountById(), mapOf("id" to accountId))
-        if (account == null) {
-            call.respond(HttpStatusCode.NotFound, buildJsonObject { put("error", "Account not found") })
-            return@get
+        try {
+            val accountId = call.parameters["accountId"] ?: return@get
+            val account = memgraph.readSingle(Queries.findAccountById(), mapOf("id" to accountId))
+            if (account == null) {
+                call.respond(HttpStatusCode.NotFound, buildJsonObject { put("error", "Account not found") })
+                return@get
+            }
+            val ts = trustService.compute(accountId)
+            val explanation = AppContext.aiService.explain(ts)
+            
+            // Save the explanation to history - Wrapped to prevent blocking
+            try {
+                com.vantage.db.TransactionRepository.saveHistory(ts, explanation.summary, explanation.verdict)
+            } catch (e: Exception) {
+                println("[Routes] Failed to save history to Postgres: ${e.message}")
+            }
+            
+            val result = ts.copy(explanation = explanation)
+            call.respondText(json.encodeToString(result), ContentType.Application.Json)
+        } catch (e: Exception) {
+            println("[Routes] Forensic analysis failed: ${e.message}")
+            e.printStackTrace()
+            call.respond(HttpStatusCode.InternalServerError, buildJsonObject {
+                put("error", e.message ?: "Internal forensic analysis failure")
+                put("exception", e.javaClass.simpleName)
+            })
         }
-        val ts = trustService.compute(accountId)
-        val explanation = aiService.explain(ts)
-        
-        // Save the explanation to history
-        com.vantage.db.TransactionRepository.saveHistory(ts, explanation.summary, explanation.verdict)
-        
-        val result = ts.copy(explanation = explanation)
-        call.respondText(json.encodeToString(result), ContentType.Application.Json)
     }
 
     post("/audit/proof-of-life") {
@@ -132,7 +148,7 @@ fun Route.configureApiRoutes() {
             return@post
         }
         val ts = trustService.compute(accountId)
-        val explanation = aiService.explain(ts)
+        val explanation = AppContext.aiService.explain(ts)
         val response = buildJsonObject {
             put("accountId", accountId)
             put("trustScore", ts.ts)
@@ -248,7 +264,7 @@ fun Route.configureApiRoutes() {
         for (row in results) {
             val a = row["a"] as? Map<*, *>
             val t = row["t"] as? Map<*, *>
-            val c = row["c"] as? Map<*, *>
+            val n = row["n"] as? Map<*, *>
             if (a != null) {
                 nodes.add(buildJsonObject {
                     put("id", a["id"] as? String ?: "")
@@ -257,18 +273,20 @@ fun Route.configureApiRoutes() {
                     put("isBlacklisted", a["isBlacklisted"] as? Boolean ?: false)
                 })
             }
-            if (c != null) {
+            if (n != null) {
+                val labels = n["__labels"] as? List<*> ?: emptyList<Any>()
+                val type = if (labels.contains("Account")) "Account" else "Counterparty"
                 nodes.add(buildJsonObject {
-                    put("id", c["id"] as? String ?: "")
-                    put("type", "Counterparty")
-                    put("name", c["name"] as? String ?: "")
-                    put("isBlacklisted", c["isBlacklisted"] as? Boolean ?: false)
+                    put("id", n["id"] as? String ?: "")
+                    put("type", type)
+                    put("name", n["name"] as? String ?: "")
+                    put("isBlacklisted", n["isBlacklisted"] as? Boolean ?: false)
                 })
             }
-            if (t != null && a != null && c != null) {
+            if (t != null && a != null && n != null) {
                 edges.add(buildJsonObject {
                     put("source", a["id"] as? String ?: "")
-                    put("target", c["id"] as? String ?: "")
+                    put("target", n["id"] as? String ?: "")
                     put("amount", (t["amount"] as? Number)?.toDouble() ?: 0.0)
                     put("currency", t["currency"] as? String ?: "NGN")
                 })

@@ -41,7 +41,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
   const [tooltip, setTooltip] = useState<{ id: string; label: string; x: number; y: number } | null>(null);
-  const [pulsingNodes, setPulsingNodes] = useState<{ id: string; x: number; y: number; size: number }[]>([]);
+  const [pulsingNodes, setPulsingNodes] = useState<{ id: string; x: number; y: number; size: number; color: string }[]>([]);
 
   useImperativeHandle(ref, () => ({
     zoomIn: () => cyRef.current?.zoom(cyRef.current.zoom() * 1.25),
@@ -148,6 +148,17 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
             'opacity': 0.6,
           },
         },
+        // ── Edges: critical-path (pulsing) ──
+        {
+          selector: 'edge.critical-path',
+          style: {
+            'line-color': '#EF4444',
+            'width': 3,
+            'line-style': 'dashed',
+            'line-dash-pattern': [6, 4],
+            'opacity': 1,
+          },
+        },
         // ── Filtered out (hidden by status filter toggles) ──
         {
           selector: '.filtered-out',
@@ -174,11 +185,18 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
 
     // Update pulse overlay positions whenever cytoscape renders
     cy.on('render', () => {
-      const flagged = cy.nodes('[status="flagged"]:visible');
+      const risky = cy.nodes('[status="flagged"]:visible, [status="watch"]:visible');
       setPulsingNodes(
-        flagged.map(n => {
+        risky.map(n => {
           const pos = n.renderedPosition();
-          return { id: n.id(), x: pos.x, y: pos.y, size: STATUS_SIZE.flagged };
+          const status = n.data('status') as string;
+          return { 
+            id: n.id(), 
+            x: pos.x, 
+            y: pos.y, 
+            size: STATUS_SIZE[status] || STATUS_SIZE.default,
+            color: STATUS_COLOR[status] || STATUS_COLOR.default
+          };
         })
       );
     });
@@ -206,19 +224,28 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
       graphData.nodes.forEach(node => {
         const existing = cy.getElementById(node.id);
         if (existing.length > 0) {
-          existing.data(node);
+          existing.data({ ...node });
         } else {
-          cy.add({ group: 'nodes', data: node });
+          cy.add({ group: 'nodes', data: { ...node } });
         }
       });
 
       // Upsert edges
       graphData.edges.forEach(edge => {
         const existing = cy.getElementById(edge.id);
+        const sourceNode = cy.getElementById(edge.source);
+        const targetNode = cy.getElementById(edge.target);
+        
+        // Mark as critical path if either end is flagged
+        const isCritical = sourceNode.data('status') === 'flagged' || targetNode.data('status') === 'flagged';
+
         if (existing.length > 0) {
-          existing.data(edge);
+          existing.data({ ...edge });
+          if (isCritical) existing.addClass('critical-path');
+          else existing.removeClass('critical-path');
         } else {
-          cy.add({ group: 'edges', data: edge });
+          const newEdge = cy.add({ group: 'edges', data: { ...edge } });
+          if (isCritical) newEdge.addClass('critical-path');
         }
       });
     });
@@ -260,6 +287,24 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     });
   }, [filterStatuses]);
 
+  // Animation loop for pulsing critical edges (marching ants effect)
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    let offset = 0;
+    let reqId: number;
+
+    const animate = () => {
+      offset = (offset + 0.5) % 10;
+      cy.edges('.critical-path').style('line-dash-offset', -offset);
+      reqId = requestAnimationFrame(animate);
+    };
+
+    reqId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(reqId);
+  }, [graphData]);
+
 
 
   // Sync selection
@@ -295,7 +340,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
     <div className="relative w-full h-full overflow-hidden" style={{ background: 'var(--color-bg-canvas)' }}>
       <div ref={containerRef} className="absolute inset-0" />
 
-      {/* CSS-animated pulse rings for flagged/critical nodes only */}
+      {/* CSS-animated solid pulse dots for flagged/critical nodes only */}
       {pulsingNodes.map(pos => (
         <div
           key={pos.id}
@@ -306,8 +351,8 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
             left: pos.x,
             top: pos.y,
             transform: 'translate(-50%, -50%)',
-            border: '2px solid #EF4444',
-            animation: 'criticalPulse 1.4s ease-out infinite',
+            background: pos.color,
+            animation: 'criticalPulse 1.6s ease-out infinite',
           }}
         />
       ))}
@@ -334,9 +379,8 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(({
 
       <style>{`
         @keyframes criticalPulse {
-          0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.9; }
-          60%  { transform: translate(-50%, -50%) scale(1.8); opacity: 0.3; }
-          100% { transform: translate(-50%, -50%) scale(2.2); opacity: 0; }
+          0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.8; }
+          100% { transform: translate(-50%, -50%) scale(2.6); opacity: 0;   }
         }
       `}</style>
     </div>

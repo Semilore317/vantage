@@ -50,8 +50,13 @@ suspend fun handleLogin(call: ApplicationCall) {
 
 suspend fun authenticateRequest(call: ApplicationCall): Boolean {
     val config = AppContext.config
-    val header = call.request.header(HttpHeaders.Authorization) ?: return false
-    val token = header.removePrefix("Bearer ").trim()
+    val header = call.request.header(HttpHeaders.Authorization)
+    
+    val token = if (header != null) {
+        header.removePrefix("Bearer ").trim()
+    } else {
+        call.request.queryParameters["token"]
+    } ?: return false
 
     if (token == config.apiKey) return true
 

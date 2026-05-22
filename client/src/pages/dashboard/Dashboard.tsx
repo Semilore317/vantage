@@ -1,23 +1,11 @@
-import { useEffect } from "react";
-import { useAppSelector, useAppDispatch } from "../../store/hooks";
-import { incomingTransaction, incomingAlert } from "../../store/dashboardSlice";
-import { sseService } from "../../lib/sseService";
+import { useAppSelector } from "../../store/hooks";
 import LiveFeedPanel from "../../components/LiveFeedPanel";
 import AlertPanel from "../../components/AlertPanel";
 import MetricCard from "../../components/MetricCard";
 import { CheckCircle2 } from "lucide-react";
 
 const Dashboard = () => {
-    const dispatch = useAppDispatch();
     const metrics = useAppSelector((state) => state.dashboard.metrics);
-
-    useEffect(() => {
-        sseService.start(
-            (t) => dispatch(incomingTransaction(t)),
-            (a) => dispatch(incomingAlert(a))
-        );
-        return () => sseService.stop();
-    }, [dispatch]);
 
     return (
         <div className="flex h-full gap-(--spacing-lg)">

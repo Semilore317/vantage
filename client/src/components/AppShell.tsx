@@ -1,9 +1,11 @@
-import { useAppSelector } from "../store/hooks";
-import StatusDot from "./StatusDot";
+import { useEffect } from "react";
+import { useAppSelector, useAppDispatch } from "../store/hooks";
+import { incomingTransaction, incomingAlert } from "../store/dashboardSlice";
+import { sseService } from "../lib/sseService";
 import VerdictModal from "./VerdictModal";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
-import { LayoutDashboard, Network, ShieldAlert } from "lucide-react";
+import { LayoutDashboard, Network, ShieldAlert, Clock, BarChart3 } from "lucide-react";
 import type { AuthUser } from "../store/authSlice";
 
 
@@ -23,8 +25,16 @@ function getDisplayName(user: AuthUser | null): string {
 }
 
 const AppShell = ({ children }: AppShellProps) => {
-    const streamStatus = useAppSelector((state) => state.dashboard?.streamStatus || 'offline');
+    const dispatch = useAppDispatch();
     const user = useAppSelector((state) => state.auth?.user ?? null);
+
+    useEffect(() => {
+        sseService.start(
+            (t) => dispatch(incomingTransaction(t)),
+            (a) => dispatch(incomingAlert(a))
+        );
+        return () => sseService.stop();
+    }, [dispatch]);
 
     return (
         <div className="flex h-screen w-full bg-bg-canvas text-text-primary font-sans">
@@ -49,6 +59,17 @@ const AppShell = ({ children }: AppShellProps) => {
                         <ShieldAlert size={18} />
                         <span className="text-(length:--font-size-body)">Flagged Accounts</span>
                     </NavLink>
+
+                    <div className="h-px bg-border-subtle my-2 mx-3" />
+
+                    <NavLink to="/history" className={({isActive}) => `flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${isActive ? 'bg-bg-raised text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-canvas'}`}>
+                        <Clock size={18} />
+                        <span className="text-(length:--font-size-body)">History</span>
+                    </NavLink>
+                    <NavLink to="/analytics" className={({isActive}) => `flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${isActive ? 'bg-bg-raised text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-canvas'}`}>
+                        <BarChart3 size={18} />
+                        <span className="text-(length:--font-size-body)">Analytics</span>
+                    </NavLink>
                 </nav>
 
                 <div className="p-3 mt-auto border-t border-border-subtle flex items-center gap-2.5 cursor-pointer hover:bg-bg-raised transition-colors rounded-b-sm">
@@ -69,9 +90,7 @@ const AppShell = ({ children }: AppShellProps) => {
             <div className="flex-1 flex flex-col h-full overflow-hidden">
                 {/* Topbar */}
                 <header className="h-(--height-topbar) shrink-0 bg-bg-surface border-b border-border-subtle flex items-center justify-end px-6">
-                    <div className="flex items-center gap-2">
-                        <StatusDot status={streamStatus} />
-                    </div>
+                    {/* Real-time status removed per request */}
                 </header>
 
                 {/* Page Content */}

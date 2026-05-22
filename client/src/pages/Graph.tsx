@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useAppSelector, useAppDispatch } from '../store/hooks';
 import { selectNode, updateGraphData } from '../store/graphSlice';
 
@@ -20,11 +20,13 @@ export default function Graph() {
   const transactions = useAppSelector(state => state.dashboard.transactions);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatuses, setFilterStatuses] = useState<NodeStatus[]>(['flagged', 'watch', 'clean']);
+  const [filterStatuses, setFilterStatuses] = useState<NodeStatus[]>(['flagged', 'watch']);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const graphCanvasRef = useRef<GraphCanvasHandle>(null);
+
+  const flaggedAccounts = useAppSelector(state => state.flagged.accounts);
 
   // ── Fetch real graph data ─────────────────────────────────────────────────
   const loadGraphData = useCallback(async () => {
@@ -45,89 +47,92 @@ export default function Graph() {
     loadGraphData();
   }, [loadGraphData]);
 
-  // ── Live feed → graph status sync ────────────────────────────────────────
+  // ── Live feed & Flagged Accounts → graph status sync & dynamic injection ──
   useEffect(() => {
     if (!transactions || transactions.length === 0) return;
     const latest = transactions[0];
+    
     let newStatus: NodeStatus = 'clean';
     if (latest.status === 'CRITICAL') newStatus = 'flagged';
     else if (latest.status === 'HIGH_RISK') newStatus = 'watch';
 
-    let updatedNodes = [...graphData.nodes];
-    let nodesChanged = false;
+    // Override with flagged accounts list if present
+    const isExplicitlyFlagged = flaggedAccounts.some(a => a.id === latest.accountId && (a.isBlacklisted || a.trustScore < 40));
+    if (isExplicitlyFlagged) newStatus = 'flagged';
 
-    const sourceId = latest.accountId;
-    let sourceNode = updatedNodes.find(n => n.id === sourceId || n.accountId === sourceId);
-    
-    if (sourceNode) {
-      if (sourceNode.status !== newStatus) {
-        updatedNodes = updatedNodes.map(n => 
-          (n.id === sourceId || n.accountId === sourceId) ? { ...n, status: newStatus } : n
-        );
-        nodesChanged = true;
-      }
-    } else {
-      sourceNode = {
-        id: sourceId,
-        label: latest.name || sourceId.substring(0, 8),
+    const nodes = [...graphData.nodes];
+    const edges = [...graphData.edges];
+    let changed = false;
+
+    // 1. Upsert Account Node
+    const accNodeIdx = nodes.findIndex(n => n.id === latest.accountId || n.accountId === latest.accountId);
+    if (accNodeIdx === -1) {
+      nodes.push({
+        id: latest.accountId,
+        label: latest.accountId,
         type: 'account',
         status: newStatus,
-        accountId: sourceId
-      };
-      updatedNodes.push(sourceNode);
-      nodesChanged = true;
+        trustScore: latest.trustScore ? Math.round(latest.trustScore * 100) : undefined
+      });
+      changed = true;
+    } else if (nodes[accNodeIdx].status !== newStatus && (newStatus === 'flagged' || nodes[accNodeIdx].status !== 'flagged')) {
+      // Only upgrade risk, don't downgrade automatically to clean if it was flagged before
+      nodes[accNodeIdx] = { ...nodes[accNodeIdx], status: newStatus };
+      changed = true;
     }
 
-    const targetId = latest.counterpartyId;
-    if (targetId) {
-      let targetNode = updatedNodes.find(n => n.id === targetId || n.accountId === targetId);
-      if (!targetNode) {
-        targetNode = {
-          id: targetId,
-          label: targetId.substring(0, 8),
-          type: 'account',
-          status: 'clean',
-          accountId: targetId
-        };
-        updatedNodes.push(targetNode);
-        nodesChanged = true;
-      }
+    // 2. Upsert Counterparty Node
+    const counterpartyId = latest.counterpartyId;
+    const cpNodeIdx = counterpartyId ? nodes.findIndex(n => n.id === counterpartyId || n.accountId === counterpartyId) : -1;
+    if (counterpartyId && cpNodeIdx === -1) {
+      const cpIsFlagged = flaggedAccounts.some(a => a.id === latest.counterpartyId && (a.isBlacklisted || a.trustScore < 40));
+      nodes.push({
+        id: counterpartyId,
+        label: latest.counterpartyName || counterpartyId,
+        type: 'account',
+        status: cpIsFlagged ? 'flagged' : 'clean'
+      });
+      changed = true;
     }
 
-    let updatedEdges = [...graphData.edges];
-    let edgesChanged = false;
-    
-    if (targetId) {
-      const edgeId = `live-${latest.id}`;
-      if (!updatedEdges.find(e => e.id === edgeId)) {
-        updatedEdges.push({
-          id: edgeId,
-          source: sourceNode.id,
-          target: targetId,
-          weight: latest.amount,
-          suspicious: newStatus === 'flagged' || updatedNodes.find(n => n.id === targetId)?.status === 'flagged'
-        });
-        edgesChanged = true;
-      }
+    // 3. Upsert Edge
+    const edgeId = counterpartyId ? `e_${latest.accountId}_${counterpartyId}` : null;
+    if (edgeId && counterpartyId && !edges.some(e => e.id === edgeId)) {
+      edges.push({
+        id: edgeId,
+        source: latest.accountId,
+        target: counterpartyId,
+        suspicious: newStatus === 'flagged',
+        weight: latest.amount
+      });
+      changed = true;
     }
 
-    if (nodesChanged || edgesChanged) {
-      if (nodesChanged) {
-        updatedEdges = updatedEdges.map(e => ({
-          ...e,
-          suspicious: (
-            updatedNodes.find(n => n.id === e.source)?.status === 'flagged' ||
-            updatedNodes.find(n => n.id === e.target)?.status === 'flagged'
-          )
-        }));
-      }
-      dispatch(updateGraphData({ nodes: updatedNodes, edges: updatedEdges }));
+    if (changed) {
+      const updatedEdges = edges.map(e => ({
+        ...e,
+        suspicious: (
+          nodes.find(n => n.id === e.source)?.status === 'flagged' ||
+          nodes.find(n => n.id === e.target)?.status === 'flagged'
+        )
+      }));
+      dispatch(updateGraphData({ nodes, edges: updatedEdges }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions]);
+  }, [transactions, flaggedAccounts]);
 
-  const hasFlaggedOrWatch = graphData.nodes.some(n => n.status === 'flagged' || n.status === 'watch');
-  const showEmptyState = !hasFlaggedOrWatch && !isRefreshing && !fetchError;
+  // FILTER: Only show risky nodes (flagged or watch) that are also active in filterStatuses
+  const riskyGraphData = useMemo(() => {
+    const nodes = graphData.nodes.filter(n => 
+      (n.status === 'flagged' || n.status === 'watch') && 
+      filterStatuses.includes(n.status)
+    );
+    const nodeIds = new Set(nodes.map(n => n.id));
+    const edges = graphData.edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+    return { nodes, edges };
+  }, [graphData, filterStatuses]);
+
+  const showEmptyState = riskyGraphData.nodes.length === 0 && !isRefreshing && !fetchError;
 
   // Node click → select + fetch verdict → VerdictModal opens (via selectedNodeId in Redux)
   const handleNodeClick = (nodeId: string) => {
@@ -152,14 +157,14 @@ export default function Graph() {
       <div className="flex-1 relative overflow-hidden">
         <GraphCanvas
           ref={graphCanvasRef}
-          graphData={graphData}
+          graphData={riskyGraphData}
           selectedNodeId={selectedNodeId}
           onNodeClick={handleNodeClick}
           filterStatuses={filterStatuses}
           searchQuery={searchQuery}
         />
 
-        <NodeLegend nodes={graphData.nodes} />
+        <NodeLegend nodes={riskyGraphData.nodes} />
 
         <ZoomControls
           onZoomIn={() => graphCanvasRef.current?.zoomIn()}

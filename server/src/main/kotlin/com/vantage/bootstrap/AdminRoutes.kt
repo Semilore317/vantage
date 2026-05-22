@@ -17,6 +17,10 @@ fun Route.configureAdminRoutes() {
     route("/admin") {
         // Middleware to verify ADMIN role
         intercept(ApplicationCallPipeline.Call) {
+            if (call.request.httpMethod == HttpMethod.Options) {
+                proceed()
+                return@intercept
+            }
             val path = call.request.uri.substringBefore('?')
             if (path.endsWith("/login")) {
                 proceed()

@@ -45,10 +45,15 @@ fun Application.configureStartup() {
             }
         }
         AppContext.sseService.start(this, memgraph)
+        AppContext.aiService = com.vantage.service.AiService()
         
         // Start Network Centrality Worker
         val networkWorker = com.vantage.service.NetworkAlertWorker(AppContext.sseService)
         networkWorker.start()
+
+        // Start Dashboard Metrics Worker
+        val metricsWorker = com.vantage.service.MetricsWorker(AppContext.sseService)
+        metricsWorker.start()
         
         println("[Vantage] Ready on port ${environment.config.property("ktor.deployment.port").getString()}")
     }

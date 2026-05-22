@@ -5,6 +5,8 @@ import Dashboard from "./pages/dashboard/Dashboard";
 import Graph from "./pages/Graph";
 import Verdict from "./pages/verdict/Verdict";
 import FlaggedAccounts from "./pages/flagged/FlaggedAccounts";
+import History from "./pages/History";
+import Analytics from "./pages/Analytics";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AppShell from "./components/AppShell";
 
@@ -65,6 +67,30 @@ function App() {
           <ProtectedRoute>
             <AppShell>
               <FlaggedAccounts />
+            </AppShell>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected: History */}
+      <Route
+        path="/history"
+        element={
+          <ProtectedRoute>
+            <AppShell>
+              <History />
+            </AppShell>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected: Analytics */}
+      <Route
+        path="/analytics"
+        element={
+          <ProtectedRoute>
+            <AppShell>
+              <Analytics />
             </AppShell>
           </ProtectedRoute>
         }

@@ -1,7 +1,7 @@
-FROM gradle:8.5-jdk21 AS build
+FROM gradle:9.5.1-jdk21 AS build
 WORKDIR /app
 COPY . .
-RUN chmod +x gradlew && ./gradlew buildFatJar --no-daemon
+RUN ./gradlew buildFatJar --no-daemon
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

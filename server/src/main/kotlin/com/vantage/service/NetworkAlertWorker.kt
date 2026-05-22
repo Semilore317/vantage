@@ -16,10 +16,12 @@ class NetworkAlertWorker(private val sseService: SseService) {
                 try {
                     checkCentrality()
                     checkLargeTransactions()
+                    checkSuspiciousClusters()
+                    detectFraudRings()
                 } catch (e: Exception) {
                     println("[NetworkAlertWorker] Error in alert worker: ${e.message}")
                 }
-                delay(60000) // Check every minute
+                delay(30000) // Increase frequency to 30s
             }
         }
     }
@@ -47,6 +49,40 @@ class NetworkAlertWorker(private val sseService: SseService) {
             
             if (amount > 1000000.0) { // Large amount involvement
                 triggerAlert(accountId, "Large Amount Involvement", "Account $accountId involved in a transaction of ${"%.2f".format(amount)}. High-value transaction alert.", "warning")
+            }
+        }
+    }
+
+    private suspend fun checkSuspiciousClusters() {
+        val results = memgraph.query(Queries.findSuspiciousClusters())
+        results.forEach { row ->
+            val cpId = row["counterpartyId"] as? String ?: return@forEach
+            val name = row["name"] as? String ?: "Unknown"
+            val count = (row["connectedAccounts"] as? Number)?.toLong() ?: 0L
+            val volume = (row["totalVolume"] as? Number)?.toDouble() ?: 0.0
+            
+            triggerAlert(cpId, "Suspicious Cluster Detected", "Counterparty '$name' ($cpId) is being used by $count accounts with a total volume of ${"%.2f".format(volume)}. Potential Sybil attack or fraud ring hub.", "critical")
+        }
+    }
+
+    private suspend fun detectFraudRings() {
+        val results = memgraph.query(Queries.communityDetection())
+        val clusters = results.groupBy { it["community_id"] as? String ?: "" }
+        
+        clusters.forEach { (cpId, pairs) ->
+            if (cpId.isEmpty()) return@forEach
+            
+            val accountIds = pairs.flatMap { listOf(it["source"] as String, it["target"] as String) }.toSet()
+            val anyBlacklisted = pairs.any { (it["sBlack"] as? Boolean) == true || (it["tBlack"] as? Boolean) == true }
+            
+            if (anyBlacklisted) {
+                accountIds.forEach { id ->
+                    triggerAlert(id, "Fraud Ring Association", "Account $id is linked via shared counterparty ($cpId) to a known fraudulent entity. High community risk detected.", "critical")
+                }
+            } else if (accountIds.size > 5) {
+                accountIds.forEach { id ->
+                    triggerAlert(id, "High Density Cluster", "Account $id is part of a suspicious cluster of ${accountIds.size} accounts sharing counterparty $cpId.", "warning")
+                }
             }
         }
     }

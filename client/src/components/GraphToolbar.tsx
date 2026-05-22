@@ -1,4 +1,4 @@
-import { Search, X, ChevronDown, Grid, LayoutDashboard, RefreshCcw } from 'lucide-react';
+import { Search, X, Grid, LayoutDashboard, RefreshCcw } from 'lucide-react';
 import type { NodeStatus } from '../types';
 import { useState } from 'react';
 
@@ -66,16 +66,6 @@ export default function GraphToolbar({
             {hasFlaggedFilter && <X size={14} className="opacity-70 hover:opacity-100" />}
           </button>
           
-          {/* Non-functional static pills */}
-          <button className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--color-bg-raised)] border border-[var(--color-border-subtle)] text-[var(--font-size-caption)] font-[var(--font-weight-medium)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors">
-            High Velocity
-            <ChevronDown size={14} className="opacity-70" />
-          </button>
-          
-          <button className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--color-bg-raised)] border border-[var(--color-border-subtle)] text-[var(--font-size-caption)] font-[var(--font-weight-medium)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors">
-            Value &gt; $10k
-            <ChevronDown size={14} className="opacity-70" />
-          </button>
         </div>
       </div>
 

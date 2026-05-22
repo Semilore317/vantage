@@ -5,6 +5,7 @@ import { selectNode, setKillSwitchState } from '../store/graphSlice';
 import { fetchVerdict } from '../lib/fetchVerdict';
 import VerdictContent from './VerdictContent';
 import LoadingSkeleton from './LoadingSkeleton';
+import axiosInstance from '../lib/axiosInstance';
 
 interface VerdictModalProps {
   /** Override the nodeId source — useful when opening from outside the graph */
@@ -53,6 +54,16 @@ export default function VerdictModal({ nodeId: externalNodeId, onClose: external
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === overlayRef.current) handleClose();
+  };
+
+  const handleMarkFalsePositive = async () => {
+    if (!activeNodeId) return;
+    try {
+      await axiosInstance.post(`/api/v1/admin/unflag/${activeNodeId}`);
+      handleClose();
+    } catch (err) {
+      console.error('Failed to mark as false positive:', err);
+    }
   };
 
   if (!isOpen) return null;
@@ -194,7 +205,7 @@ export default function VerdictModal({ nodeId: externalNodeId, onClose: external
               verdictStatus={verdictStatus}
               killSwitchState={killSwitchState}
               onKillSwitch={handleKillSwitch}
-              onMarkFalsePositive={() => console.log('Marked as false positive:', activeNodeId)}
+              onMarkFalsePositive={handleMarkFalsePositive}
               mode="fullpage"
             />
           )}

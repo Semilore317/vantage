@@ -15,4 +15,5 @@ object AppContext {
     lateinit var config: AppConfig
     lateinit var memgraph: MemgraphClient
     lateinit var sseService: SseService
+    lateinit var aiService: com.vantage.service.AiService
 }
