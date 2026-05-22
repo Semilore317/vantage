@@ -5,8 +5,9 @@ export type StreamStatus = 'connecting' | 'live' | 'reconnecting' | 'offline';
 export interface Transaction {
   id: string;                // transactionRef
   accountId: string;
-  counterpartyId: string;
-  counterpartyName: string;
+  counterpartyId?: string;
+  counterpartyName?: string;
+  name?: string;
   amount: number;
   currency: string;
   timestamp: string;         // ISO string

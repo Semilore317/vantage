@@ -38,7 +38,7 @@ const TransactionRow = ({ transaction, isNew }: TransactionRowProps) => {
             <div className="flex-1 min-w-0">
                 <div className="flex flex-col gap-1">
                     <AccountChip 
-                        name={transaction.counterpartyName} 
+                        name={transaction.counterpartyName || transaction.name || transaction.counterpartyId || transaction.accountId} 
                         accountId={transaction.accountId} 
                     />
                     <span className="text-[10px] text-[var(--color-text-muted)] font-mono ml-2">

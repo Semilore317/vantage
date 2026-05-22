@@ -57,7 +57,7 @@ export default function Graph() {
     else if (latest.status === 'HIGH_RISK') newStatus = 'watch';
 
     // Override with flagged accounts list if present
-    const isExplicitlyFlagged = flaggedAccounts.some(a => a.id === latest.accountId && (a.isBlacklisted || a.trustScore < 40));
+    const isExplicitlyFlagged = flaggedAccounts.some(a => a.id === latest.accountId && (a.isBlacklisted || a.trustScore < 0.4));
     if (isExplicitlyFlagged) newStatus = 'flagged';
 
     const nodes = [...graphData.nodes];
@@ -65,7 +65,7 @@ export default function Graph() {
     let changed = false;
 
     // 1. Upsert Account Node
-    const accNodeIdx = nodes.findIndex(n => n.id === latest.accountId);
+    const accNodeIdx = nodes.findIndex(n => n.id === latest.accountId || n.accountId === latest.accountId);
     if (accNodeIdx === -1) {
       nodes.push({
         id: latest.accountId,
@@ -82,12 +82,13 @@ export default function Graph() {
     }
 
     // 2. Upsert Counterparty Node
-    const cpNodeIdx = nodes.findIndex(n => n.id === latest.counterpartyId);
-    if (cpNodeIdx === -1) {
-      const cpIsFlagged = flaggedAccounts.some(a => a.id === latest.counterpartyId && (a.isBlacklisted || a.trustScore < 40));
+    const counterpartyId = latest.counterpartyId;
+    const cpNodeIdx = counterpartyId ? nodes.findIndex(n => n.id === counterpartyId || n.accountId === counterpartyId) : -1;
+    if (counterpartyId && cpNodeIdx === -1) {
+      const cpIsFlagged = flaggedAccounts.some(a => a.id === latest.counterpartyId && (a.isBlacklisted || a.trustScore < 0.4));
       nodes.push({
-        id: latest.counterpartyId,
-        label: latest.counterpartyName || latest.counterpartyId,
+        id: counterpartyId,
+        label: latest.counterpartyName || counterpartyId,
         type: 'account',
         status: cpIsFlagged ? 'flagged' : 'clean'
       });
@@ -95,20 +96,27 @@ export default function Graph() {
     }
 
     // 3. Upsert Edge
-    const edgeId = `e_${latest.accountId}_${latest.counterpartyId}`;
-    if (!edges.some(e => e.id === edgeId)) {
+    const edgeId = counterpartyId ? `e_${latest.accountId}_${counterpartyId}` : null;
+    if (edgeId && counterpartyId && !edges.some(e => e.id === edgeId)) {
       edges.push({
         id: edgeId,
         source: latest.accountId,
-        target: latest.counterpartyId,
+        target: counterpartyId,
         suspicious: newStatus === 'flagged',
-        weight: 1
+        weight: latest.amount
       });
       changed = true;
     }
 
     if (changed) {
-      dispatch(updateGraphData({ nodes, edges }));
+      const updatedEdges = edges.map(e => ({
+        ...e,
+        suspicious: (
+          nodes.find(n => n.id === e.source)?.status === 'flagged' ||
+          nodes.find(n => n.id === e.target)?.status === 'flagged'
+        )
+      }));
+      dispatch(updateGraphData({ nodes, edges: updatedEdges }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transactions, flaggedAccounts]);
@@ -139,7 +147,10 @@ export default function Graph() {
         onSearchChange={setSearchQuery}
         filterStatuses={filterStatuses}
         onFilterChange={setFilterStatuses}
-        onRescan={() => graphCanvasRef.current?.fitFlagged()}
+        onRescan={async () => {
+          await loadGraphData();
+          setTimeout(() => graphCanvasRef.current?.fitFlagged(), 300);
+        }}
       />
 
       {/* Full-width graph — modal overlays instead of sidebar split */}
