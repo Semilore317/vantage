@@ -2,6 +2,7 @@ import type { Transaction, Alert } from "../types";
 
 import { getToken } from "../services/auth";
 import { store } from "../store/store";
+import { addFlaggedAccount, removeFlaggedAccount } from "../store/flaggedSlice";
 // We will create this slice next
 import { setStreamStatus } from "../store/dashboardSlice";
 
@@ -23,19 +24,23 @@ function getBackoffMs(attempt: number): number {
     return Math.min(1000 * Math.pow(2, attempt), MAX_BACKOFF_MS);
 }
 
-
+function secureRandom(): number {
+    const bytes = new Uint32Array(1);
+    crypto.getRandomValues(bytes);
+    return bytes[0] / 0x100000000;
+}
 
 function generateMockTransaction(): Transaction {
-    const rand = Math.random();
+    const rand = secureRandom();
     let status: Transaction["status"] = "SAFE";
     if (rand > 0.85) status = "CRITICAL";
     else if (rand > 0.60) status = "HIGH_RISK";
 
-    const cpName = ["Mainland", "Global Crypto", "Unknown Wallet", "Lagos Casino"][Math.floor(Math.random() * 4)];
-    const id1 = Math.floor(1000 + Math.random() * 9000);
-    const id2 = Math.floor(1000 + Math.random() * 9000);
-    const cId1 = Math.floor(1000 + Math.random() * 9000);
-    const cId2 = Math.floor(1000 + Math.random() * 9000);
+    const cpName = ["Mainland", "Global Crypto", "Unknown Wallet", "Lagos Casino"][Math.floor(secureRandom() * 4)];
+    const id1 = Math.floor(1000 + secureRandom() * 9000);
+    const id2 = Math.floor(1000 + secureRandom() * 9000);
+    const cId1 = Math.floor(1000 + secureRandom() * 9000);
+    const cId2 = Math.floor(1000 + secureRandom() * 9000);
 
     return {
         id: crypto.randomUUID(),
@@ -43,7 +48,7 @@ function generateMockTransaction(): Transaction {
         counterpartyId: `CP-${cId1}-${cId2}`,
         counterpartyName: cpName,
         name: cpName,
-        amount: 50 + Math.random() * 24950,
+        amount: 50 + secureRandom() * 24950,
         currency: "NGN",
         timestamp: new Date().toISOString(),
         status,
@@ -127,7 +132,6 @@ export const sseService: SSEService = {
                 eventSource.addEventListener("flag_update", async (e) => {
                     try {
                         const data = JSON.parse(e.data);
-                        const { addFlaggedAccount, removeFlaggedAccount } = await import("../store/flaggedSlice");
                         if (data.isBlacklisted) {
                             store.dispatch(addFlaggedAccount({
                                 id: data.accountId,
